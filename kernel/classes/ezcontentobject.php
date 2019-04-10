@@ -38,6 +38,8 @@ class eZContentObject extends eZPersistentObject
     const RELATION_LINK = 4;
     const RELATION_ATTRIBUTE = 8;
 
+    public $ContentObjectAttributeArray = [];
+
     /**
      * Initializes the object with $row.
      *
@@ -220,6 +222,31 @@ class eZContentObject extends eZPersistentObject
                       "sort" => array( "id" => "asc" ),
                       "name" => "ezcontentobject" );
         return $definition;
+    }
+
+    static function instance($row)
+    {
+        $object = false;
+        $contentclassId = $row['contentclass_id'] ?? false;
+
+        if ($contentclassId) {
+            $class = eZContentClass::fetch($contentclassId);
+            $identifier = $class->attribute('identifier');
+
+            $siteIni = eZINI::instance('site.ini');
+            $overrides = $siteIni->variable('ContentSettings', 'ContentClassOverrides');
+
+            if (array_key_exists($identifier, $overrides)) {
+                $class = $overrides[$identifier];
+                $object = new $class($row);
+            }
+        }
+
+        if (!$object) {
+            $object = new eZContentObject($row);
+        }
+
+        return $object;
     }
 
     /**
@@ -898,7 +925,7 @@ class eZContentObject extends eZPersistentObject
 
             if ( $asObject )
             {
-                $obj = new eZContentObject( $objectArray );
+                $obj = eZContentObject::instance($objectArray);
                 $eZContentObjectContentObjectCache[$id] = $obj;
             }
             else
@@ -1022,7 +1049,7 @@ class eZContentObject extends eZPersistentObject
         {
             foreach ( $resArray as $res )
             {
-                $objectArray[$res['node_id']] = $eZContentObjectContentObjectCache[$res['id']] = new self( $res );
+                $objectArray[$res['node_id']] = $eZContentObjectContentObjectCache[$res['id']] = eZContentObject::instance($res);
             }
         }
         else
@@ -1081,7 +1108,7 @@ class eZContentObject extends eZPersistentObject
             $resRow['class_name'] = eZContentClass::nameFromSerializedString( $resRow['class_serialized_name_list'] );
             if ( $asObject )
             {
-                $obj = new eZContentObject( $resRow );
+                $obj = eZContentObject::instance($resRow);
                 $obj->ClassName = $resRow['class_name'];
                 if ( $lang !== false )
                 {
@@ -1612,7 +1639,7 @@ class eZContentObject extends eZPersistentObject
             "section_id" => $sectionID,
             'remote_id' => eZRemoteIdUtility::generate( 'object' ) );
 
-        return new eZContentObject( $row );
+        return eZContentObject::instance($row);
     }
 
     /**
@@ -3265,7 +3292,7 @@ class eZContentObject extends eZPersistentObject
         {
             if ( $asObject )
             {
-                $obj = new eZContentObject( $object );
+                $obj = eZContentObject::instance($object);
                 $obj->ClassName = eZContentClass::nameFromSerializedString( $object['class_serialized_name_list'] );
             }
             else
