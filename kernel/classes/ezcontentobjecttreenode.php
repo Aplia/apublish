@@ -5320,7 +5320,7 @@ class eZContentObjectTreeNode extends eZPersistentObject
                     if ( isset( $node['class_identifier'] ) )
                         $row['class_identifier'] = $node['class_identifier'];
 
-                    $contentObject = new eZContentObject( $row );
+                    $contentObject = eZContentObject::instance($row);
                 }
                 else
                 {
