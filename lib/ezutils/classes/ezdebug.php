@@ -51,7 +51,32 @@
   eZDebug::printReport();
 
   \endcode
-*/
+
+
+  It is possible to disable the internal logging mechanism and instead
+  forward all messages to a PSR-3 compatible logger.
+
+  The PSR logger is configured by setting the global variable
+  `$GLOBALS["ezpDebug"]["loggerFactory]`.
+  The `loggerFactory` must be a callable which takes an error level
+  as a parameter, e.g. "info", it should return a logger instance
+  tailored for this error level.
+
+  If the callable returns null it means to disable eZDebug logging entirely,
+  log output is not sent anywhere. If the callable returns false then eZDebug
+  will fall back to the original internal logging mechanism.
+
+  Example using Monolog, creates a logger with "error" level being the max
+  \code
+  $GLOBALS["ezpDebug"]["loggerFactory"] = function ($name)
+  {
+        $log = new Logger('name');
+        $log->pushHandler(new StreamHandler('path/to/your.log', Logger::ERROR));
+        return $log;
+  }
+  \endcode
+
+  */
 
 class eZDebug
 {
@@ -82,6 +107,29 @@ class eZDebug
     const MAX_LOGROTATE_FILES = 3;
 
     const XDEBUG_SIGNATURE = '--XDEBUG--';
+
+    /**
+     * Constant used for disabling a logger for a given level.
+     */
+    const LOGGER_DISABLED = 1;
+
+    /**
+     * Provides mapping from eZDebug levels to a level name, built on first-time use.
+     */
+    protected static $logLevelMap = null;
+
+    /**
+     * Provides mapping from eZDebug levels to PSR-3 logging names, built on first-time use.
+     */
+    protected static $logLevelToPsr = null;
+
+    /**
+     * An array of configured PSR loggers per level, level is defined by a string,
+     * .e.g "info" or "error"
+     *
+     * @var array
+     */
+    protected static $loggers = array();
 
     /*!
       Creates a new debug object.
@@ -407,6 +455,22 @@ class eZDebug
     */
     static function writeStrict( $string, $label = "", $backgroundClass = "" )
     {
+        // If a logger object is defined, use that for logging instead
+        $logger = self::getLogger( self::LEVEL_STRICT );
+        if ( $logger )
+        {
+            if ( $logger !== self::LOGGER_DISABLED )
+            {
+                $context = array();
+                if ( $label )
+                {
+                    $context['label'] = $label;
+                }
+                $logger->error( $string, $context );
+            }
+            return;
+        }
+
         $alwaysLog = eZDebug::alwaysLogMessage( self::LEVEL_STRICT );
         $enabled = eZDebug::isDebugEnabled();
         if ( !$alwaysLog and !$enabled )
@@ -452,6 +516,22 @@ class eZDebug
     */
     static function writeNotice( $string, $label = "", $backgroundClass = "" )
     {
+        // If a logger object is defined, use that for logging instead
+        $logger = self::getLogger( self::LEVEL_NOTICE );
+        if ( $logger )
+        {
+            if ( $logger !== self::LOGGER_DISABLED )
+            {
+                $context = array();
+                if ( $label )
+                {
+                    $context['label'] = $label;
+                }
+                $logger->info( $string, $context );
+            }
+            return;
+        }
+
         $alwaysLog = eZDebug::alwaysLogMessage( self::LEVEL_NOTICE );
         $enabled = eZDebug::isDebugEnabled();
         if ( !$alwaysLog and !$enabled )
@@ -495,6 +575,22 @@ class eZDebug
     */
     static function writeWarning( $string, $label = "", $backgroundClass = "" )
     {
+        // If a logger object is defined, use that for logging instead
+        $logger = self::getLogger( self::LEVEL_WARNING );
+        if ( $logger )
+        {
+            if ( $logger !== self::LOGGER_DISABLED )
+            {
+                $context = array();
+                if ( $label )
+                {
+                    $context['label'] = $label;
+                }
+                $logger->warning( $string, $context );
+            }
+            return;
+        }
+
         $alwaysLog = eZDebug::alwaysLogMessage( self::LEVEL_WARNING );
         $enabled = eZDebug::isDebugEnabled();
         if ( !$alwaysLog and !$enabled )
@@ -538,6 +634,22 @@ class eZDebug
     */
     static function writeError( $string, $label = "", $backgroundClass = "" )
     {
+        // If a logger object is defined, use that for logging instead
+        $logger = self::getLogger( self::LEVEL_ERROR );
+        if ( $logger )
+        {
+            if ( $logger !== self::LOGGER_DISABLED )
+            {
+                $context = array();
+                if ( $label )
+                {
+                    $context['label'] = $label;
+                }
+                $logger->error( $string, $context );
+            }
+            return;
+        }
+
         $alwaysLog = eZDebug::alwaysLogMessage( self::LEVEL_ERROR );
         $enabled = eZDebug::isDebugEnabled();
         if ( !$alwaysLog and !$enabled )
@@ -581,6 +693,22 @@ class eZDebug
     */
     static function writeDebug( $string, $label = "", $backgroundClass = "" )
     {
+        // If a logger object is defined, use that for logging instead
+        $logger = self::getLogger( self::LEVEL_DEBUG );
+        if ( $logger )
+        {
+            if ( $logger !== self::LOGGER_DISABLED )
+            {
+                $context = array();
+                if ( $label )
+                {
+                    $context['label'] = $label;
+                }
+                $logger->debug( $string, $context );
+            }
+            return;
+        }
+
         $alwaysLog = eZDebug::alwaysLogMessage( self::LEVEL_DEBUG );
         $enabled = eZDebug::isDebugEnabled();
         if ( !$alwaysLog and !$enabled )
@@ -613,6 +741,66 @@ class eZDebug
         {
             $debug->write( $string, self::LEVEL_DEBUG, $label, $backgroundClass, $alwaysLog );
         }
+    }
+
+    /**
+     * Returns the PSR-3 Logger instance for a given level if one is defined.
+     * This instance will override the internal logger mechanism of eZDebug,
+     * and all log calls are instead sent to the PSR logger.
+     *
+     * The logger is configured by setting the global variable
+     * `$GLOBALS["ezpDebug"]["loggerFactory]`.
+     *
+     * The loggerFactory must be a callable which takes an error level
+     * as a parameter, e.g. "info", it should return a logger instance
+     * tailored for this error level. If the callable returns null it
+     * means to disable eZDebug logging entirely, log output is not
+     * sent anywhere. If the callable returns false then eZDebug will
+     * back to the original internal logging mechanism.
+     *
+     * Returns false if PSR logger is disabled and internal logger is enabled.
+     * Returns LOGGING_DISABLED if PSR logger and internal logger is disabled.
+     * Returns Psr\Log\LoggerInterface instance if a logger is configured,
+     * internal logger is disabled.
+     *
+     * @param string $level The eZDebug log level
+     * @return Psr\Log\LoggerInterface, false or LOGGER_DISABLED
+     */
+    public static function getLogger( $level )
+    {
+        if ( !isset( self::$loggers[$level] ) )
+        {
+            if ( isset( $GLOBALS['ezpDebug']['loggerFactory'] ) )
+            {
+                $loggerFactory = $GLOBALS['ezpDebug']['loggerFactory'];
+                // Build a map between eZDebug levels to a level name
+                if ( self::$logLevelMap === null )
+                {
+                    self::$logLevelMap = array(
+                        self::LEVEL_NOTICE => 'info',
+                        self::LEVEL_WARNING => 'warning',
+                        self::LEVEL_ERROR => 'error',
+                        self::LEVEL_TIMING_POINT => 'timing',
+                        self::LEVEL_DEBUG => 'debug',
+                        self::LEVEL_STRICT => 'error',
+                    );
+                }
+
+                // Use the log factory to create the log object
+                $logger = $loggerFactory( self::$logLevelMap[$level] );
+                if ( $logger === null )
+                {
+                    // If it returns null then logging is disabled for this level
+                    $logger = self::LOGGER_DISABLED;
+                }
+
+                self::$loggers[$level] = $logger;
+                return $logger;
+            }
+            // No logger configured, use default internal logger
+            self::$loggers[$level] = false;
+        }
+        return self::$loggers[$level];
     }
 
     /*!
@@ -708,6 +896,34 @@ class eZDebug
     */
     function write( $string, $verbosityLevel = self::LEVEL_NOTICE, $label = "", $backgroundClass = "", $alwaysLog = false )
     {
+        // If a logger object is defined, use that for logging instead
+        $logger = self::getLogger( $verbosityLevel );
+        if ( $logger )
+        {
+            if ( $logger !== self::LOGGER_DISABLED )
+            {
+                // Map the eZDebug log level to a string that the PSR-3 logger understands
+                if ( self::$logLevelToPsr === null )
+                {
+                    self::$logLevelToPsr = array(
+                        self::LEVEL_NOTICE => 'info',
+                        self::LEVEL_WARNING => 'warning',
+                        self::LEVEL_ERROR => 'error',
+                        self::LEVEL_TIMING_POINT => 'debug',
+                        self::LEVEL_DEBUG => 'debug',
+                        self::LEVEL_STRICT => 'error',
+                    );
+                }
+                $context = array();
+                if ( $label )
+                {
+                    $context['label'] = $label;
+                }
+                $logger->log( self::$logLevelToPsr[$verbosityLevel], $string, $context );
+            }
+            return;
+        }
+
         $enabled = eZDebug::isDebugEnabled();
         if ( !$alwaysLog and !$enabled )
             return;
