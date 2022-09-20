@@ -69,7 +69,7 @@
             {if and( or( eq( $browse.action_name, 'MoveNode' ), eq( $browse.action_name, 'CopyNode' ), eq( $browse.action_name, 'AddNodeAssignment' ) ), $Nodes.item.object.content_class.is_container|not )}
                 <input type="{$select_type}" name="{$select_name}[]" value="{$Nodes.item[$select_attribute]}" disabled="disabled" />
             {elseif and( eq( $browse.action_name, 'SwapNode' ),
-                         eq( get_class( $swap_node ), 'ezcontentobjecttreenode' ),
+                         cond( $swap_node, eq( get_class( $swap_node ), 'ezcontentobjecttreenode' ), false() ),
                          or( and( $swap_node.children_count|gt(0), $Nodes.item.object.content_class.is_container|not ),
                              and( $swap_node.is_container|not, $Nodes.item.children_count|gt(0) ) ) )}
                 <input type="{$select_type}" name="{$select_name}[]" value="{$Nodes.item[$select_attribute]}" disabled="disabled" />
